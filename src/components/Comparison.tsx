@@ -7,6 +7,7 @@ import { MetricsResponse } from '@/lib/api';
 
 const RF = '#2ecc71';
 const XGB = '#3498db';
+const ANN = '#e67e22';
 
 export function MetricsBarChart({ metrics }: { metrics: MetricsResponse }) {
   const m = metrics.dropout;
@@ -14,6 +15,7 @@ export function MetricsBarChart({ metrics }: { metrics: MetricsResponse }) {
     metric: k.toUpperCase(),
     'Random Forest': +m.random_forest[k].toFixed(4),
     XGBoost: +m.xgboost[k].toFixed(4),
+    ...(m.ann ? { ANN: +m.ann[k].toFixed(4) } : {}),
   }));
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -25,20 +27,22 @@ export function MetricsBarChart({ metrics }: { metrics: MetricsResponse }) {
         <Legend />
         <Bar dataKey="Random Forest" fill={RF} />
         <Bar dataKey="XGBoost" fill={XGB} />
+        {m.ann && <Bar dataKey="ANN" fill={ANN} />}
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
 export function ROCChart({ metrics }: { metrics: MetricsResponse }) {
-  const { rf, xgb } = metrics.dropout.roc_curves;
-  const data: { fpr: number; rf?: number; xgb?: number }[] = [];
-  const len = Math.max(rf.fpr.length, xgb.fpr.length);
+  const { rf, xgb, ann } = metrics.dropout.roc_curves;
+  const len = Math.max(rf.fpr.length, xgb.fpr.length, ann?.fpr.length ?? 0);
+  const data: { fpr: number; rf?: number; xgb?: number; ann?: number }[] = [];
   for (let i = 0; i < len; i++) {
     data.push({
-      fpr: rf.fpr[i] ?? xgb.fpr[i],
+      fpr: rf.fpr[i] ?? xgb.fpr[i] ?? ann?.fpr[i] ?? 0,
       rf: rf.tpr[i],
       xgb: xgb.tpr[i],
+      ann: ann?.tpr[i],
     });
   }
   return (
@@ -51,14 +55,24 @@ export function ROCChart({ metrics }: { metrics: MetricsResponse }) {
         <Legend />
         <Line type="monotone" dataKey="rf" stroke={RF} dot={false} name={`RF (AUC ${metrics.dropout.random_forest.roc_auc.toFixed(3)})`} />
         <Line type="monotone" dataKey="xgb" stroke={XGB} dot={false} name={`XGB (AUC ${metrics.dropout.xgboost.roc_auc.toFixed(3)})`} />
+        {metrics.dropout.ann && (
+          <Line type="monotone" dataKey="ann" stroke={ANN} dot={false} name={`ANN (AUC ${metrics.dropout.ann.roc_auc.toFixed(3)})`} />
+        )}
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
+const COLOR_RGB: Record<string, string> = {
+  [RF]: '46,204,113',
+  [XGB]: '52,152,219',
+  [ANN]: '230,126,34',
+};
+
 export function ConfusionMatrix({ matrix, title, color }: { matrix: number[][]; title: string; color: string }) {
   const labels = ['Stayed', 'Dropped'];
   const max = Math.max(...matrix.flat());
+  const rgb = COLOR_RGB[color] ?? '52,152,219';
   return (
     <div>
       <h3 style={{ color, textAlign: 'center' }}>{title}</h3>
@@ -78,7 +92,7 @@ export function ConfusionMatrix({ matrix, title, color }: { matrix: number[][]; 
                 return (
                   <td key={j} style={{
                     padding: '1rem',
-                    background: `rgba(${color === RF ? '46,204,113' : '52,152,219'}, ${0.15 + intensity * 0.6})`,
+                    background: `rgba(${rgb}, ${0.15 + intensity * 0.6})`,
                     fontWeight: 600,
                     border: '1px solid white',
                   }}>{v}</td>
@@ -115,9 +129,20 @@ export function FeatureImportanceChart({ metrics }: { metrics: MetricsResponse }
 }
 
 export function TimingChart({ metrics }: { metrics: MetricsResponse }) {
+  const m = metrics.dropout;
   const data = [
-    { phase: 'Train (s)', RF: metrics.dropout.random_forest.train_time_s, XGB: metrics.dropout.xgboost.train_time_s },
-    { phase: 'Inference (ms)', RF: metrics.dropout.random_forest.inference_ms, XGB: metrics.dropout.xgboost.inference_ms },
+    {
+      phase: 'Train (s)',
+      RF: m.random_forest.train_time_s,
+      XGB: m.xgboost.train_time_s,
+      ...(m.ann ? { ANN: m.ann.train_time_s } : {}),
+    },
+    {
+      phase: 'Inference (ms)',
+      RF: m.random_forest.inference_ms,
+      XGB: m.xgboost.inference_ms,
+      ...(m.ann ? { ANN: m.ann.inference_ms } : {}),
+    },
   ];
   return (
     <ResponsiveContainer width="100%" height={250}>
@@ -129,26 +154,31 @@ export function TimingChart({ metrics }: { metrics: MetricsResponse }) {
         <Legend />
         <Bar dataKey="RF" fill={RF} />
         <Bar dataKey="XGB" fill={XGB} />
+        {m.ann && <Bar dataKey="ANN" fill={ANN} />}
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
 export function PredictionBars({
-  rfProb, xgbProb, label,
-}: { rfProb: number; xgbProb: number; label: string }) {
-  const data = [
-    { name: label, 'Random Forest': +(rfProb * 100).toFixed(1), XGBoost: +(xgbProb * 100).toFixed(1) },
-  ];
+  rfProb, xgbProb, annProb, label,
+}: { rfProb: number; xgbProb: number; annProb?: number; label: string }) {
+  const row: Record<string, number | string> = {
+    name: label,
+    'Random Forest': +(rfProb * 100).toFixed(1),
+    XGBoost: +(xgbProb * 100).toFixed(1),
+  };
+  if (annProb !== undefined) row['ANN'] = +(annProb * 100).toFixed(1);
   return (
-    <ResponsiveContainer width="100%" height={120}>
-      <BarChart data={data} layout="vertical">
+    <ResponsiveContainer width="100%" height={140}>
+      <BarChart data={[row]} layout="vertical">
         <XAxis type="number" domain={[0, 100]} />
         <YAxis dataKey="name" type="category" hide />
         <Tooltip />
         <Legend />
         <Bar dataKey="Random Forest" fill={RF} />
         <Bar dataKey="XGBoost" fill={XGB} />
+        {annProb !== undefined && <Bar dataKey="ANN" fill={ANN} />}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -180,5 +210,50 @@ export function CategoryProbabilityChart({
         <Bar dataKey="XGB" fill={XGB} />
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+export function AnnTrainingCurves({ metrics }: { metrics: MetricsResponse }) {
+  const ann = metrics.dropout.ann;
+  if (!ann) return null;
+  const epochs = ann.training_history.loss.length;
+  const data = Array.from({ length: epochs }, (_, i) => ({
+    epoch: i + 1,
+    'Train loss': +ann.training_history.loss[i].toFixed(4),
+    'Val loss': +ann.training_history.val_loss[i].toFixed(4),
+    'Train acc': +ann.training_history.accuracy[i].toFixed(4),
+    'Val acc': +ann.training_history.val_accuracy[i].toFixed(4),
+  }));
+  return (
+    <div>
+      <div style={{ marginBottom: '1rem' }}>
+        <h3 style={{ fontSize: '.95rem', marginBottom: '.4rem' }}>Loss (binary cross-entropy)</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="epoch" label={{ value: 'Epoch', position: 'bottom', offset: -5 }} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="Train loss" stroke="#e74c3c" dot={false} />
+            <Line type="monotone" dataKey="Val loss" stroke={ANN} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div>
+        <h3 style={{ fontSize: '.95rem', marginBottom: '.4rem' }}>Accuracy</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="epoch" label={{ value: 'Epoch', position: 'bottom', offset: -5 }} />
+            <YAxis domain={[0, 1]} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="Train acc" stroke="#e74c3c" dot={false} />
+            <Line type="monotone" dataKey="Val acc" stroke={ANN} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }

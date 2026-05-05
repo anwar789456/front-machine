@@ -58,6 +58,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const predictDropout = (p: ChildProfile) => post<DropoutResponse>('/predict-dropout', p);
 export const recommend = (p: ChildProfile) => post<RecommendResponse>('/recommend', p);
+export const explain = (p: ChildProfile) => post<ExplainResponse>('/explain', p);
 
 export async function fetchMetrics(): Promise<MetricsResponse> {
   const res = await fetch(`${API_URL}/metrics`);
@@ -65,9 +66,16 @@ export async function fetchMetrics(): Promise<MetricsResponse> {
   return res.json();
 }
 
+export type SingleModelDropout = {
+  dropout_probability: number;
+  prediction: string;
+  risk_level: 'low' | 'medium' | 'high';
+};
+
 export type DropoutResponse = {
-  random_forest: { dropout_probability: number; prediction: string; risk_level: 'low' | 'medium' | 'high' };
-  xgboost: { dropout_probability: number; prediction: string; risk_level: 'low' | 'medium' | 'high' };
+  random_forest: SingleModelDropout;
+  xgboost: SingleModelDropout;
+  ann?: SingleModelDropout;
   agreement: boolean;
 };
 
@@ -104,8 +112,13 @@ export type MetricsResponse = {
   dropout: {
     random_forest: ModelMetrics;
     xgboost: ModelMetrics;
-    roc_curves: { rf: { fpr: number[]; tpr: number[] }; xgb: { fpr: number[]; tpr: number[] } };
-    confusion_matrices: { rf: number[][]; xgb: number[][] };
+    ann?: AnnMetrics;
+    roc_curves: {
+      rf: { fpr: number[]; tpr: number[] };
+      xgb: { fpr: number[]; tpr: number[] };
+      ann?: { fpr: number[]; tpr: number[] };
+    };
+    confusion_matrices: { rf: number[][]; xgb: number[][]; ann?: number[][] };
     feature_importances: { features: string[]; rf: number[]; xgb: number[] };
   };
 };
@@ -119,4 +132,33 @@ export type ModelMetrics = {
   roc_auc: number;
   train_time_s: number;
   inference_ms: number;
+};
+
+export type FeatureContribution = {
+  feature: string;
+  label: string;
+  value: number;
+  shap: number;
+};
+
+export type ModelExplanation = {
+  dropout_probability: number;
+  contributions: FeatureContribution[];
+  summary: string;
+  base_value: number | null;
+};
+
+export type ExplainResponse = {
+  random_forest: ModelExplanation;
+  xgboost: ModelExplanation;
+};
+
+export type AnnMetrics = ModelMetrics & {
+  epochs_run: number;
+  training_history: {
+    loss: number[];
+    val_loss: number[];
+    accuracy: number[];
+    val_accuracy: number[];
+  };
 };
